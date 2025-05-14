@@ -42,20 +42,26 @@ jobs:
       - name: Set Environment Variables
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "DEPLOY_DIR=/var/www/nextjs-app" >> $GITHUB_ENV
-            echo "PM2_NAME=nextjs-app" >> $GITHUB_ENV
+          echo "DEPLOY_DIR=/var/www/nextjs-app" >> $GITHUB_ENV
+          echo "PM2_NAME=nextjs-app" >> $GITHUB_ENV
+          echo "ENV_CONTENT=${{ secrets.PROD_ENV_FILE }}" >> $GITHUB_ENV
           else
-            echo "DEPLOY_DIR=/var/www/nextjs-dev" >> $GITHUB_ENV
-            echo "PM2_NAME=nextjs-dev" >> $GITHUB_ENV
+          echo "DEPLOY_DIR=/var/www/nextjs-dev" >> $GITHUB_ENV
+          echo "PM2_NAME=nextjs-dev" >> $GITHUB_ENV
+          echo "ENV_CONTENT=${{ secrets.DEV_ENV_FILE }}" >> $GITHUB_ENV
           fi
 
       - name: Clone Repository
         uses: actions/checkout@v2
 
-      - name: Sync files to server directory
+      - name: Sync files to deployment directory
         run: |
           echo "Syncing to $DEPLOY_DIR"
           rsync -avz --delete ./ $DEPLOY_DIR/
+
+      - name: Write .env file to server
+        run: |
+          echo "$ENV_CONTENT" > $DEPLOY_DIR/.env
 
       - name: Install Dependencies
         run: |
@@ -70,14 +76,14 @@ jobs:
       - name: Start/Restart with PM2
         run: |
           cd $DEPLOY_DIR
+          PORT=$(grep PORT .env | cut -d '=' -f2)
 
-          # Try to restart, if it fails then start
           if pm2 list | grep -q $PM2_NAME; then
           echo "Restarting PM2 app: $PM2_NAME"
           pm2 restart $PM2_NAME
           else
-          echo "Starting PM2 app: $PM2_NAME"
-          PORT=$(grep PORT .env | cut -d '=' -f2) pm2 start npm --name "$PM2_NAME" -- start
+          echo "Starting PM2 app: $PM2_NAME on PORT=$PORT"
+          pm2 start "PORT=$PORT npm start" --name "$PM2_NAME"
           fi
 
           pm2 save
