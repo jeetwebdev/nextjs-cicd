@@ -1,4 +1,4 @@
-name: SimplePipeline
+name: CI/CD Pipeline
 
 on:
   push:
@@ -7,14 +7,16 @@ on:
 jobs:
   lintTest:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Clone Repository
         uses: actions/checkout@v2
+
       - name: Install Dependencies
         run: |
           echo "Installing dependencies..."
           npm install
+
       - name: Run Linter
         run: |
           echo "Running linter..."
@@ -24,26 +26,56 @@ jobs:
 
   securityChecks:
     name: Security Checks
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Check for Security
         run: |
-          echo "Checking for Security 1..."
-          sleep 5s;
-          echo "Checking for Security 2..."
-          sleep 5s;
-          echo "Checking for Security 3..."
-          sleep 5s;
+          echo "Running security checks..."
+          sleep 5s
+          echo "Done."
 
   deploy:
     name: Deploy
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: [lintTest, securityChecks]
     steps:
-      - name: Deploy to Production
+      - name: Set Environment Variables
         run: |
-          echo "Deploying to production..."
-          sleep 5s;
-          echo "Deployment complete."
-        env:
-          CI: true
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "DEPLOY_DIR=/var/www/nextjs-app" >> $GITHUB_ENV
+            echo "PM2_NAME=nextjs-app" >> $GITHUB_ENV
+          else
+            echo "DEPLOY_DIR=/var/www/nextjs-dev" >> $GITHUB_ENV
+            echo "PM2_NAME=nextjs-dev" >> $GITHUB_ENV
+          fi
+
+      - name: Clone Repository
+        uses: actions/checkout@v2
+
+      - name: Sync files to server directory
+        run: |
+          echo "Syncing to $DEPLOY_DIR"
+          rsync -avz --delete ./ $DEPLOY_DIR/
+
+      - name: Install Dependencies
+        run: |
+          cd $DEPLOY_DIR
+          npm ci
+
+      - name: Build Application
+        run: |
+          cd $DEPLOY_DIR
+          npm run build
+
+      - name: Start/Restart with PM2
+        run: |
+          cd $DEPLOY_DIR
+          pm2 describe $PM2_NAME > /dev/null
+          if [ $? -eq 0 ]; then
+            echo "Restarting $PM2_NAME..."
+            pm2 restart $PM2_NAME
+          else
+            echo "Starting $PM2_NAME..."
+            pm2 start npm --name "$PM2_NAME" -- start
+          fi
+          pm2 save
