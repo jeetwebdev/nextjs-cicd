@@ -70,12 +70,14 @@ jobs:
       - name: Start/Restart with PM2
         run: |
           cd $DEPLOY_DIR
-          pm2 describe $PM2_NAME > /dev/null
-          if [ $? -eq 0 ]; then
-            echo "Restarting $PM2_NAME..."
-            pm2 restart $PM2_NAME
+
+          # Try to restart, if it fails then start
+          if pm2 list | grep -q $PM2_NAME; then
+          echo "Restarting PM2 app: $PM2_NAME"
+          pm2 restart $PM2_NAME
           else
-            echo "Starting $PM2_NAME..."
-            pm2 start npm --name "$PM2_NAME" -- start
+          echo "Starting PM2 app: $PM2_NAME"
+          PORT=$(grep PORT .env | cut -d '=' -f2) pm2 start npm --name "$PM2_NAME" -- start
           fi
+
           pm2 save
